@@ -1,0 +1,109 @@
+version: "3.9"
+
+services:
+  # --- DATABASE ---
+  inventory-db:
+    image: postgres:16-alpine
+    container_name: inventory-db
+    environment:
+      POSTGRES_DB: inventory_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: St716944
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d inventory_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - db_data_final:/var/lib/postgresql/data
+
+  # --- ZOOKEEPER (Apache) --->  silindi
+  # --- KAFKA (Apache) ---
+  inventory-kafka:
+    image: apache/kafka:3.7.1
+    container_name: inventory-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # İç, Dış ve Controller (KRaft beyni) için 3 ayrı dinleyici:
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://inventory-kafka:29092,EXTERNAL://cengiztansel.duckdns.org:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@inventory-kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL # Burası advertised_listeners içindekilerden biri olmalı
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # KRaft'ın çalışması için zorunlu Cluster ID (rastgele bir metin):
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+
+
+  # --- KEYCLOAK ---
+    #inventory-keycloak:
+    image: quay.io/keycloak/keycloak:24.0.0
+    container_name: inventory-keycloak
+    command:
+      - start-dev
+      - --http-enabled=true
+#      - --hostname=cengiztansel.duckdns.org
+      - --hostname-strict=false
+      - --hostname-strict-https=false  # ŞİFREYİ İPTAL EDEN SATIR BU
+#      - --proxy-headers=xforwarded # Bulut ortamı için kritik
+      - --http-relative-path=/auth # Frontend'in beklediği eski yolu geri kazandırır
+
+    environment:
+#      KEYCLOAK_ADMIN: admin
+#      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_URL: http://cengiztansel.duckdns.org:8081/auth
+      KC_HOSTNAME_ADMIN_URL: http://cengiztansel.duckdns.org:8081/auth
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_PROXY: edge # HTTPS zorunluluğunu kökten çözen ayar budur
+    ports:
+      - "8081:8080"
+    volumes:
+      - keycloak_data_final:/opt/keycloak/data
+
+  # --- BACKEND ---
+  inventory-backend:
+    build: ./inventory-service
+    container_name: inventory-backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+      inventory-kafka:
+        condition: service_started
+      inventory-keycloak:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://inventory-db:5432/inventory_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: St716944
+
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: inventory-kafka:9092
+      SPRING_KAFKA_PRODUCER_RETRIES: 5
+
+#      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://inventory-keycloak:8080/realms/inventory-realm
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://inventory-keycloak:8080/auth/realms/inventory-realm
+
+  # --- FRONTEND ---
+  inventory-frontend:
+    build: ./inventory-frontend
+    container_name: inventory-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://cengiztansel.duckdns.org:8080
+    depends_on:
+      - inventory-backend
+
+volumes:
+  keycloak_data_final:
+  db_data_final:

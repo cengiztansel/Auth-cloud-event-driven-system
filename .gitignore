@@ -1,0 +1,19 @@
+# Java / Maven
+target/
+*.jar
+*.war
+*.class
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+*.log

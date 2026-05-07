@@ -1,0 +1,10 @@
+# Dspring.application.name=inventory-service
+# Dspring.datasource.url=jdbc:postgresql://localhost:5432/inventory
+# Dspring.datasource.username=root
+# Dspring.datasource.password=St716944
+# Dspring.jpa.hibernate.ddl-auto=update
+# Dspring.jpa.show-sql=true
+
+
+spring.application.name=inventory-service
+# Docker d??? (IntelliJ'den direkt 
